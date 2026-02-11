@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import os
 import time
 
-# Konfiguracia - Mobilna verzia Bazosu pre lepsie obchadzanie ochrany
+# Konfiguracia - Upravena URL na najjednoduchsi format
 BASE_URL = "https://mobil.bazos.sk/{page}?hledat=5g&hlokalita=&humkreis=25&cenaod=30&cenado=250&order="
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -22,48 +22,45 @@ def scrape():
         with open(DATA_FILE, "r") as f:
             videne = f.read().splitlines()
     
-    # Simulujeme realny mobilny prehliadac (iPhone)
+    # Maximalne maskovanie - kopia realneho Chrome prehliadaca
     headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'sk-SK,sk;q=0.9',
-        'Referer': 'https://www.google.com/'
+        'authority': 'mobil.bazos.sk',
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'accept-language': 'sk-SK,sk;q=0.9,en-US;q=0.8,en;q=0.7',
+        'cache-control': 'max-age=0',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     }
 
-    for start in [0, 20, 40]:
+    # Skusime len prvu stranu na test, aby sme nevyvolali podozrenie
+    for start in [0, 20]:
         page_param = f"{start}/" if start > 0 else ""
         current_url = BASE_URL.format(page=page_param)
         
         print(f"Skusam nacitat: {current_url}")
         
         try:
-            response = requests.get(current_url, headers=headers, timeout=15)
-            if response.status_code != 200:
-                print(f"Chyba: Bazos vratil kod {response.status_code}")
-                continue
-                
+            # Pridany session pre udrzanie cookies (vyzera to ludskejsie)
+            session = requests.Session()
+            response = session.get(current_url, headers=headers, timeout=15)
+            
+            if "Pridané inzeráty" not in response.text and "Hľadať" not in response.text:
+                print("⚠️ Varovanie: Stranka sa pravdepodobne nenacitala spravne (Anti-bot ochrana).")
+            
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Hladame vsetky inzeraty podla hlavnej struktury
-            inzeraty = soup.find_all('div', class_='listin')
+            # Skusime najst inzeraty cez velmi vseobecny selector
+            inzeraty = soup.select('div.listin') or soup.select('.listintele')
             
-            # Ak listin nefunguje, skusime univerzalnejsie hladanie cez nadpisy
-            if not inzeraty:
-                inzeraty = soup.select('.listintele, .listin, .mainclanek')
-
-            print(f"Najdenych inzeratov na strane {int(start/20)+1}: {len(inzeraty)}")
+            print(f"Najdenych inzeratov na strane: {len(inzeraty)}")
             
             for inz in inzeraty:
-                nadpis_tag = inz.find('h2', class_='nadpis')
-                if not nadpis_tag: continue
-                
-                link_tag = nadpis_tag.find('a')
+                link_tag = inz.select_one('h2.nadpis a')
                 if not link_tag: continue
                 
                 title = link_tag.text.strip()
                 link = "https://mobil.bazos.sk" + link_tag['href']
                 
-                price_tag = inz.find('div', class_='listicena')
+                price_tag = inz.select_one('.listicena b')
                 price = price_tag.text.strip() if price_tag else "N/A"
                 
                 inz_id = link.split('/')[-2] if '/' in link else title
@@ -73,11 +70,10 @@ def scrape():
                     send_telegram(msg)
                     videne.append(inz_id)
             
-            # Kratka pauza, aby sme nevyzerali ako bot
-            time.sleep(2)
+            time.sleep(3) # Dlhšia pauza
             
         except Exception as e:
-            print(f"Chyba pri spracovani strany: {e}")
+            print(f"Chyba: {e}")
 
     with open(DATA_FILE, "w") as f:
         f.write("\n".join(videne))
