@@ -1,7 +1,7 @@
 name: Bazos Check
 on:
   schedule:
-    - cron: '*/30 * * * *' # Každých 30 minút
+    - cron: '*/15 * * * *' # Každých 15 minút
   workflow_dispatch:
 jobs:
   run-scraper:
