@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import os
 
 # Konfigurácia
-BASE_URL = "https://mobil.bazos.sk/{page}?hledat=5g&Submit=H%C4%BEada%C5%A5&rubriky=mobil&category=0&hlokalita=81101&humkreis=200&cenaod=30&cenado=200&order=&crp=&kitx=ano"
+BASE_URL = "https://mobil.bazos.sk/{page}?hledat=5g&Submit=H%C4%BEada%C5%A5&rubriky=mobil&category=0&hlokalita=81101&humkreis=200&cenaod=30&cenado=2000&order=&crp=&kitx=ano"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 DATA_FILE = "videne_inzeraty.txt"
