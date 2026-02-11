@@ -1,8 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import time
 
-# Konfiguracia - Tvoja URL (upravena pre strankovanie)
+# Konfiguracia - Mobilna verzia Bazosu pre lepsie obchadzanie ochrany
 BASE_URL = "https://mobil.bazos.sk/{page}?hledat=5g&hlokalita=&humkreis=25&cenaod=30&cenado=250&order="
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -11,10 +12,9 @@ DATA_FILE = "videne_inzeraty.txt"
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text})
-        print(f"Status odoslania na Telegram: {r.status_code}")
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text}, timeout=10)
     except Exception as e:
-        print(f"Chyba pri odosielani: {e}")
+        print(f"Chyba Telegramu: {e}")
 
 def scrape():
     videne = []
@@ -22,57 +22,66 @@ def scrape():
         with open(DATA_FILE, "r") as f:
             videne = f.read().splitlines()
     
-    print(f"Pocet videnych inzeratov v archive: {len(videne)}")
+    # Simulujeme realny mobilny prehliadac (iPhone)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'sk-SK,sk;q=0.9',
+        'Referer': 'https://www.google.com/'
+    }
 
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/110.0.0.0 Safari/537.36'}
-    
-    # Prechadzame prve 3 strany (0, 20, 40)
     for start in [0, 20, 40]:
         page_param = f"{start}/" if start > 0 else ""
         current_url = BASE_URL.format(page=page_param)
         
-        print(f"Kontrolujem stranu {int(start/20)+1}: {current_url}")
+        print(f"Skusam nacitat: {current_url}")
         
-        response = requests.get(current_url, headers=headers)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Bazoš pouziva rozne triedy, skusime najst vsetky bezne typy
-        inzeraty = soup.find_all('div', class_=['listin', 'listintele'])
-        
-        print(f"Najdenych inzeratov na strane: {len(inzeraty)}")
-        
-        for inz in inzeraty:
-            # Hladame nadpis a link
-            nadpis_tag = inz.find('h2', class_='nadpis')
-            if not nadpis_tag:
+        try:
+            response = requests.get(current_url, headers=headers, timeout=15)
+            if response.status_code != 200:
+                print(f"Chyba: Bazos vratil kod {response.status_code}")
                 continue
+                
+            soup = BeautifulSoup(response.content, 'html.parser')
             
-            link_tag = nadpis_tag.find('a')
-            if not link_tag:
-                continue
+            # Hladame vsetky inzeraty podla hlavnej struktury
+            inzeraty = soup.find_all('div', class_='listin')
             
-            title = link_tag.text.strip()
-            link = "https://mobil.bazos.sk" + link_tag['href']
-            
-            # Cena
-            cena_tag = inz.find('div', class_='listicena')
-            cena = cena_tag.text.strip() if cena_tag else "N/A"
-            
-            # ID inzeratu z URL
-            try:
-                inz_id = link.split('/')[-2]
-            except:
-                continue
+            # Ak listin nefunguje, skusime univerzalnejsie hladanie cez nadpisy
+            if not inzeraty:
+                inzeraty = soup.select('.listintele, .listin, .mainclanek')
 
-            if inz_id not in videne:
-                msg = f"📱 Nový inzerát (Strana {int(start/20)+1})!\n{title}\nCena: {cena}\n{link}"
-                send_telegram(msg)
-                videne.append(inz_id)
+            print(f"Najdenych inzeratov na strane {int(start/20)+1}: {len(inzeraty)}")
+            
+            for inz in inzeraty:
+                nadpis_tag = inz.find('h2', class_='nadpis')
+                if not nadpis_tag: continue
+                
+                link_tag = nadpis_tag.find('a')
+                if not link_tag: continue
+                
+                title = link_tag.text.strip()
+                link = "https://mobil.bazos.sk" + link_tag['href']
+                
+                price_tag = inz.find('div', class_='listicena')
+                price = price_tag.text.strip() if price_tag else "N/A"
+                
+                inz_id = link.split('/')[-2] if '/' in link else title
 
-    # Ulozime aktualizovany zoznam
+                if inz_id not in videne:
+                    msg = f"📱 Nový inzerát!\n{title}\nCena: {price}\n{link}"
+                    send_telegram(msg)
+                    videne.append(inz_id)
+            
+            # Kratka pauza, aby sme nevyzerali ako bot
+            time.sleep(2)
+            
+        except Exception as e:
+            print(f"Chyba pri spracovani strany: {e}")
+
     with open(DATA_FILE, "w") as f:
         f.write("\n".join(videne))
-    print("Ukladanie dokoncene.")
+    print("Hotovo.")
 
 if __name__ == "__main__":
     scrape()
